@@ -7,6 +7,76 @@ Data downloaded from: [GEO Accession viewer](https://www.ncbi.nlm.nih.gov/geo/qu
 Github workflow followed: [Bulk RNA-sequencing pipeline and differential gene expression analysis](https://erilu.github.io/bulk-rnaseq-analysis/#Obtaining_raw_data_from_GEO)
 
 The overall workflow which we will follow is as follows:
+1. Download the raw data from GEO using SRA Toolkit ('prefetch', 'fastqdump')
+2. Quality control with FastQC and MultiQC
+3. Trimming (optional) with Trimmomatic
+4. Alignment with HISAT2
+5. Quantification with feature counts
+6. Differential gene expression analysis in R (DESeq2)
+
+Note: The first 5 steps are done in python and the scripts are saved in scripts/python/ folder.\
+The 6th and last step is done in R and scripts are saved in scripts/R/ folder.
+
+## 1. Downloading the raw data from GEO using SRA Toolkit
+As mentioned above, we will be using the dataset from article: [ONECUT2 is a driver of neuroendocrine prostate cancer - PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC6336817/#Sec11). The dataset is available in Gene Expression Omnibus(GEO) under the accession number GSE106305 available here: [GEO Accession viewer](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE106305).
+
+This dataset consists of **RNA-seq samples** from two prostate cancer cell lines:  **LNCaP** and **PC3**. Each cell line is cultured under **two oxygen conditions**: **Normoxia** and **Hypoxia**, with **two biological replicates** per condition.  
+
+The goal of this analysis is to **identify genes that show differential expression under hypoxia** compared to normoxia within each cell line.
+
+
+### 📊 Sample Metadata
+
+| Sample Name | GSM Identifier | SRA Identifier (SRX) | SRA Runs (SRR, download these) |
+|--------------|----------------|----------------------|--------------------------------|
+| LNCaP_RNA-Seq_Empty_Vector_Normoxia_rep1 | GSM3145509 | SRX4096735 | SRR7179504, SRR7179505, SRR7179506, SRR7179507 |
+| LNCaP_RNA-Seq_Empty_Vector_Normoxia_rep2 | GSM3145510 | SRX4096736 | SRR7179508, SRR7179509, SRR7179510, SRR7179511 |
+| LNCaP_RNA-Seq_Empty_Vector_Hypoxia_rep1 | GSM3145513 | SRX4096739 | SRR7179520, SRR7179521, SRR7179522, SRR7179523 |
+| LNCaP_RNA-Seq_Empty_Vector_Hypoxia_rep2 | GSM3145514 | SRX4096740 | SRR7179524, SRR7179525, SRR7179526, SRR7179527 |
+| PC3_RNA-Seq_siCtrl_Normoxia_rep1 | GSM3145517 | SRX4096743 | SRR7179536 |
+| PC3_RNA-Seq_siCtrl_Normoxia_rep2 | GSM3145518 | SRX4096744 | SRR7179537 |
+| PC3_RNA-Seq_siCtrl_Hypoxia_rep1 | GSM3145521 | SRX4096747 | SRR7179540 |
+| PC3_RNA-Seq_siCtrl_Hypoxia_rep2 | GSM3145522 | SRX4096748 | SRR7179541 |
+
+### 🧾 Explanation of Identifiers
+
+- **GSM Identifier (Gene Expression Omnibus Sample):**  
+  A unique ID assigned to each biological sample in the **GEO** database.  
+  It represents a specific experimental condition or replicate (e.g., LNCaP normoxia rep1).
+
+- **SRA Identifier (SRX - Sequence Read Experiment):**  
+  Corresponds to an **experiment record** in the **Sequence Read Archive (SRA)**,  
+  describing how the sequencing was done for that particular sample.
+
+- **SRA Runs (SRR - Sequence Read Runs):**  
+  These are the **actual raw sequencing files** generated for an experiment.  
+  Each SRX may have one or multiple SRR entries (individual sequencing runs).  
+  These are the files you download using tools like `prefetch` or `fastq-dump`.
+
+### Commands
+
+Installing SRA-toolkit:
+```
+sudo apt update
+sudo apt install sra-toolkit   
+```
+Sample download of one SRA file:\
+SRA file SRR7179504 was downloaded using `prefetch`.\
+This file was converted into fastq using `fastq-dump`.
+
+```
+prefetch SRR7179504   
+
+fastq-dump --outdir fastq --gzip --skip-technical --readids --read-filter pass --dumpbase --split-3 --clip SRR7179504.sra   
+
+```
+Automating the download of all 20 SRA files using python:
+
+In order to automate the download and conversion of SRR files into FASTQ files, we run a python script which is added at scripts/python/fastq_download.py. To run the script we use
+
+```
+python fastq_download.py
+```  
 
 
 First, we installed the SRA Toolkit, which provides us the tools 'prefetch' and 'fastq-dump' to download and convert SRA files. 
