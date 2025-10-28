@@ -72,11 +72,181 @@ fastq-dump --outdir fastq --gzip --skip-technical --readids --read-filter pass -
 ```
 Automating the download of all 20 SRA files using python:
 
-In order to automate the download and conversion of SRR files into FASTQ files, we run a python script which is added at scripts/python/fastq_download.py. To run the script we use
+In order to automate the download and conversion of SRR files into FASTQ files, we run a python script which is added at scripts/python/fastq_download.py. \
+Note: In the python program the sra_path mentioned is according to the my system. You will need to change it according to your system path to run in your systems.
+
+To run the script we use
 
 ```
 python fastq_download.py
 ```  
+## 2. Quality control with FastQC and MultiQC
+
+### FastQC
+
+Now that we have gotten our sequencing data in fastq format, we need to perform qualtiy control on this sequencing data. For this we use the `fastqc` command:
+
+```
+fastqc fastq/*.fastq.gz -o fastqc_results/ --threads 8
+```  
+FASTQC performs quality control (QC) checks on raw sequencing reads. This generates a quality report in HTML format for each sample with summarized metrics: Per base sequence quality, per sequence quality score, per base sequence content, per sequence GC content, per base N content, Sequence length distribution, Sequence duplication level, Over represented sequences and adapter content.
+
+This step is required to ensure that the sequencing data is reliable before any downstream analysis. Poor quality reads, adapter contamination and sequencing biases can distort alignment and gene quantification leading to false differential expression results. With FastQC we can detect these potential issues before alignment so that:
+- **Poor-quality bases can be trimmed (using Trimmomatic).**
+- **Contaminated or biased samples can be flagged or excluded.**
+
+Factors mentioned in FASTQC and what they represent
+#### **1. Per Base Sequence Quality**
+**Represents:**  
+The average Phred quality score at each base position across all reads.  
+It shows how confident the sequencer was about calling each base.
+
+**Potential Problems:**  
+- Quality typically drops toward the 3′ end of reads.  
+- A sharp decline below a Phred score of 20 (99% accuracy) suggests unreliable base calls.  
+
+**Solution:**  
+- Trim low-quality bases using tools like **Trimmomatic**, **Cutadapt**, or **fastp**.  
+- Consider discarding reads below a certain average quality threshold (e.g., Q20 or Q30).
+
+---
+
+#### **2. Per Sequence Quality Scores**
+**Represents:**  
+Distribution of mean quality scores per read.  
+A healthy dataset has a narrow peak toward the high-quality end.
+
+**Potential Problems:**  
+- A wider or bimodal distribution indicates that a subset of reads is low quality.  
+- May result from instrument malfunction or poor cluster generation.
+
+**Solution:**  
+- Filter out low-quality reads before alignment.  
+- Re-run sequencing if a large portion of reads is poor.
+
+---
+
+#### **3. Per Base Sequence Content**
+**Represents:**  
+Proportion of A, T, G, and C bases at each position.  
+In random libraries, these proportions should be roughly equal.
+
+**Potential Problems:**  
+- Uneven base composition (especially at the start) suggests **bias from random priming**, **adapter remnants**, or **contamination**.  
+- In RNA-seq, a small bias near the start of reads is often normal.
+
+**Solution:**  
+- Trim adapter or biased regions.  
+- Ensure proper library preparation and random priming.
+
+---
+
+#### **4. Per Sequence GC Content**
+**Represents:**  
+GC distribution across all reads.  
+It should approximate a normal distribution for most species.
+
+**Potential Problems:**  
+- A shifted or multimodal distribution suggests **contamination** (e.g., bacterial reads) or **bias in amplification**.  
+
+**Solution:**  
+- Remove contaminant sequences using **Kraken2**, **FastQ Screen**, or similar tools.  
+- Check whether GC bias is biologically expected (e.g., transcriptome of GC-rich species).
+
+---
+
+#### **5. Per Base N Content**
+**Represents:**  
+Percentage of bases that were called as “N” (uncertain base) at each position.
+
+**Potential Problems:**  
+- High or position-specific N content indicates **low signal intensity**, **instrument errors**, or **overexposure**.
+
+**Solution:**  
+- Trim or filter reads containing many Ns.  
+- If frequent, re-sequencing may be needed.
+
+---
+
+#### **6. Sequence Length Distribution**
+**Represents:**  
+Distribution of read lengths in the file.
+
+**Potential Problems:**  
+- Variable lengths indicate **trimming or adapter removal** has already been performed.  
+- Unexpected short reads can bias alignment or indicate incomplete trimming.
+
+**Solution:**  
+- Ensure consistent read length after preprocessing.  
+- Filter out excessively short reads (e.g., <30 bp for RNA-seq).
+
+---
+
+#### **7. Sequence Duplication Levels**
+**Represents:**  
+Fraction of duplicate reads in the dataset.  
+High duplication can indicate overamplification or low library diversity.
+
+**Potential Problems:**  
+- High duplication (>50%) may arise from **PCR bias**, **low input material**, or **over-sequencing of few fragments**.
+
+**Solution:**  
+- Remove PCR duplicates after alignment (e.g., **Picard MarkDuplicates**).  
+- Improve library preparation to increase complexity.
+
+---
+
+#### **8. Overrepresented Sequences**
+**Represents:**  
+Sequences that occur more frequently than expected.
+
+**Potential Problems:**  
+- Adapter contamination, primer dimers, rRNA reads, or other repetitive contamination.
+
+**Solution:**  
+- Identify and remove adapters or contaminants using **Cutadapt**, **Trim Galore**, or **BBduk**.  
+- Use rRNA depletion kits in RNA-seq library prep if needed.
+
+---
+
+#### **9. Adapter Content**
+**Represents:**  
+Proportion of reads containing adapter sequences.
+
+**Potential Problems:**  
+- Indicates incomplete trimming or small fragment sizes relative to read length.  
+- A high percentage leads to alignment errors and false expression counts.
+
+**Solution:**  
+- Trim adapters using **Trimmomatic**, **fastp**, or **Cutadapt** before alignment.  
+- Review library prep fragment size distribution.
+
+---
+
+#### ✅ **Summary**
+
+| Category | Common Cause | Impact | Fix |
+|-----------|---------------|--------|-----|
+| Low-quality bases | Signal decay | Miscalled bases | Trim or filter |
+| Uneven GC/base content | Bias or contamination | Mapping errors | Clean and verify library |
+| High duplication | Overamplification | Quantification bias | Remove duplicates |
+| Adapter contamination | Short inserts | Alignment errors | Trim adapters |
+
+### MultiQC
+
+Often, we deal with a lot of fastq files and it is not possible to go through the fastqc report of each fastq file. MultiQC automatically compiles all these reports, allowing quick visualization of global quality trends, detection of systematic biases, and comparison of sample-level metrics. This provides an efficient overview of sequencing performance and helps identify any outlier or low-quality samples before downstream analysis.
+
+We can get the MultiQC report using `multiqc` command:
+
+```
+multiqc fastqc_results/ -o multiqc_report/
+```  
+This combines all the fastqc results in fastqc_results folder to generate a multiqc_report file.
+
+
+
+
+
 
 
 First, we installed the SRA Toolkit, which provides us the tools 'prefetch' and 'fastq-dump' to download and convert SRA files. 
