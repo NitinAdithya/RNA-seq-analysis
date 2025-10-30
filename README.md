@@ -377,7 +377,6 @@ Here:
 Now we have a featurecounts.txt file for each bam file. We combine all these sample counts into a single count matrix using the countsmatrix_wholedate.py script which is found in  scripts/python/countsmatrix_wholedate.py folder.
 The count matrix is a table that has genes as rows and samples as columns with no of reads mapping to the gene for that sample (counts) as the entries. This count matrix is used for further downstream analysis using DESeq2 in R.
 
-#### Sample code in countsmatrix)wholedata.py
 
 
 
