@@ -351,7 +351,17 @@ samtools index $OUTPUT_BAM
 echo "Alignment and indexing complete for $FASTQ_FILE"
 ```
 
+### Quality Control of Alignment
+After alignment, we use Qualimap RNA-seq to assess the quality of BAM files. This generates an interactive HTML report summarizing read mapping, gene body coverage, and expression bias helping identify any technical issues or biases in the sequencing data. 
 
+#### Sample code:
+```
+./qualimap_v2.3/2.4/qualimap rnaseq -bam yourpath/sample.bam -gtf Homo_sapiens.GRCh38.114.gtf –outdir yourpath/outputfolder –java-mem-size=8G
+
+```
+
+### Read quantification
+Using the BAM files and their index .bai files, we need to now count the number of reads mapping to each gene. For this we will use the bash script featurecounts.sh which is given in scripts/bash/featurecounts.sh. This script generates 
 
 
 
