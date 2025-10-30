@@ -243,6 +243,113 @@ multiqc fastqc_results/ -o multiqc_report/
 ```  
 This combines all the fastqc results in fastqc_results folder to generate a multiqc_report file.
 
+## 3. Trimming (Optional) with Trimmomatic
+If we observe some issues with the sequencing data and need to remove certain parts of reads due to low quality, we use Trimmomatic tool. Using this we can remove low-quality bases and adapter contamination, improving read quality before alignment.
+
+### 🔧 Common Parameters
+
+| Parameter | Description | Example | Notes / When to Use |
+|------------|--------------|----------|----------------------|
+| **ILLUMINACLIP:** | Removes adapter or primer sequences using a provided adapter file. | `ILLUMINACLIP:TruSeq3-SE.fa:2:30:10` | First argument = adapter file; 2: max mismatches; 30: palindrome clip threshold; 10: simple clip threshold. |
+| **LEADING:** | Trims low-quality bases from the start (5′ end) of each read. | `LEADING:20` | Removes poor-quality bases at the beginning. |
+| **TRAILING:** | Trims low-quality bases from the end (3′ end) of each read. | `TRAILING:20` | Removes poor-quality trailing bases. |
+| **SLIDINGWINDOW:** | Performs dynamic trimming once the average quality in a window falls below a threshold. | `SLIDINGWINDOW:4:20` | Commonly used — balances stringency and read retention. |
+| **CROP:** | Keeps only the first *N* bases from each read. | `CROP:100` | Useful if you want to trim reads to a uniform length. |
+| **HEADCROP:** | Removes the first *N* bases from each read. | `HEADCROP:10` | Good for removing biased sequence at the start (e.g., random hexamer bias). |
+| **MINLEN:** | Discards reads shorter than a given length after trimming. | `MINLEN:36` | Ensures very short reads don’t cause mapping errors. |
+| **AVGQUAL:** | Drops reads with an average quality score below a threshold. | `AVGQUAL:20` | Acts as a global quality filter for each read. |
+| **TOPHRED33 / TOPHRED64** | Converts quality scores to specified encoding. | `TOPHRED33` | Useful when mixing datasets with different encodings (rare today). |
+
+---
+
+Example command:
+
+```
+java -jar Trimmomatic-0.39/trimmomatic-0.39.jar SE -threads 4 fastq/LNCAP_Hypoxia_S1.fastq.gz fastq/LNCAP_Hypoxia_S1_trimmed.fastq TRAILING:10 -phred33 
+``` 
+Note: 1. This command removes bases from the 3' end of each read till it encounters a base which has quality score above 10. \
+2. Trimmomatic runs on java so make sure java is installed in your system.\
+
+After trimming, rerun FASTQC to confirm improvements in sequencng reads. If FASTQC results are satisfactory, proceed to alignment. If low-quality bases persist, perform additional trimming using more stringent parameters like higher quality threshold. If unavoidable, re-sequencing must be considered.
+
+### Concatenating FASTQ Files
+In our data we have some samples having multiple SRA runs. In order to simplify the data, we concatenate all these runs into a single file per sample using `cat`. Samples having single SRA runs are simply renamed using `mv`. 
+
+```
+cat SRR7179504_pass.fastq.gz SRR7179505_pass.fastq.gz SRR7179506_pass.fastq.gz SRR7179507_pass.fastq.gz > LNCAP_Normoxia_S1.fastq.gz
+cat SRR7179508_pass.fastq.gz SRR7179509_pass.fastq.gz SRR7179510_pass.fastq.gz SRR7179511_pass.fastq.gz > LNCAP_Normoxia_S2.fastq.gz
+cat SRR7179520_pass.fastq.gz SRR7179521_pass.fastq.gz SRR7179522_pass.fastq.gz SRR7179523_pass.fastq.gz > LNCAP_Hypoxia_S1.fastq.gz
+cat SRR7179524_pass.fastq.gz SRR7179525_pass.fastq.gz SRR7179526_pass.fastq.gz SRR7179527_pass.fastq.gz > LNCAP_Hypoxia_S2.fastq.gz
+mv SRR7179536_pass.fastq.gz PC3_Normoxia_S1.fastq.gz
+mv SRR7179537_pass.fastq.gz PC3_Normoxia_S2.fastq.gz
+mv SRR7179540_pass.fastq.gz PC3_Hypoxia_S1.fastq.gz
+mv SRR7179541_pass.fastq.gz PC3_Hypoxia_S2.fastq.gz
+```
+
+ It is also recommended to remove all the individual SRA-run files using `rm SRR*` command. After concatenation, renaming and removing the SRA files, only final 8 FASTQ files will remain, ready for alignment.
+
+
+## 4. Alignment with HISAT2
+
+### Setting up the reference genome
+
+Whenever we need to do RNA seq analysis, we need to align our read data to a reference genome. Here we use the GRCh38 human genome and the corresponding annotation file (GTF file). 
+
+#### Brief overview of a GTF file: \
+A **GTF (Gene Transfer Format)** file provides **gene and transcript annotations** for a reference genome. 
+It describes where genes, exons, CDS (coding sequences), and other genomic features are located, allowing tools like **HISAT2**, **StringTie**, and **featureCounts** to map reads to known genes accurately.
+
+##### Inside a GTF File:
+
+Each line in a GTF file corresponds to a **feature** on the genome (such as a gene, exon, or transcript).  
+It contains **9 tab-separated columns**, as shown below:
+
+| Column | Name | Description | Example |
+|:-------:|------|--------------|----------|
+| 1 | **seqname** | Chromosome or scaffold name | `chr1` |
+| 2 | **source** | Program or database that generated the feature | `ENSEMBL` |
+| 3 | **feature** | Type of genomic feature | `gene`, `exon`, `CDS`, `transcript` |
+| 4 | **start** | Start coordinate of the feature | `11869` |
+| 5 | **end** | End coordinate of the feature | `14409` |
+| 6 | **score** | Confidence score (often `.` if not applicable) | `.` |
+| 7 | **strand** | DNA strand (`+` or `-`) | `+` |
+| 8 | **frame** | Reading frame for CDS features (`0`, `1`, or `2`) | `0` |
+| 9 | **attributes** | Key-value pairs giving extra info like gene name, transcript ID, gene type | `gene_id "ENSG00000223972"; gene_name "DDX11L1"; gene_biotype "transcribed_unprocessed_pseudogene";` |
+
+```
+wget https://genome-idx.s3.amazonaws.com/hisat/grch38_genome.tar.gz
+tar -xvzf grch38_genome.tar.gz
+wget ftp://ftp.ensembl.org/pub/release-114/gtf/homo_sapiens/Homo_sapiens.GRCh38.114.gtf.gz
+gunzip Homo_sapiens.GRCh38.114.gtf.gz
+```
+### Read Alignment
+Using the cleaned FASTQ files we run the script hisat2alignment.sh which is provided under scripts/bash/hisat2alignment.sh. This step produces BAM files along with an index .bai file foe each FASTQ file.
+
+Brief overview of SAM and BAM files:
+- SAM (Sequence Alignment/Map):
+A plain-text format that stores information about how sequencing reads align to a reference genome. Each line represents one read and includes details such as read name, alignment position, mapping quality, and CIGAR string (which describes mismatches, insertions, or deletions).
+
+- BAM (Binary Alignment/Map):
+The binary, compressed version of a SAM file. It contains the same information but takes up less space and can be quickly indexed for random access. BAM files are used for most downstream analyses and visualization in genome browsers like IGV.
+
+#### Sample Commands found inside the hisat2alignment.sh file.
+```
+# Specify the genome index and input FASTQ file
+
+GENOME_INDEX="grch38/genome"
+FASTQ_FILE="fastq/LNCAP_Hypoxia_S1.fastq.gz"
+
+# Define output file name
+OUTPUT_BAM="LNCAP_Hypoxia_S1.bam"
+
+# Run HISAT2 alignment and pipe output directly to Samtools for sorting
+hisat2 -q -x $GENOME_INDEX -U $FASTQ_FILE | samtools sort -o $OUTPUT_BAM
+
+# Index the sorted BAM file for downstream analysis
+samtools index $OUTPUT_BAM
+
+echo "Alignment and indexing complete for $FASTQ_FILE"
+```
 
 
 
